@@ -1,0 +1,293 @@
+{
+  "name": "NewsCrawl",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 22,
+              "triggerAtMinute": 28
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        32,
+        -448
+      ],
+      "id": "dd095601-1576-4473-a7cf-ea698c597d95",
+      "name": "Schedule Trigger",
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "url": "https://news.ycombinator.com/rss",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        192,
+        -48
+      ],
+      "id": "b9bf4dfe-abc6-4c06-bdcd-445310b62b5e",
+      "name": "RSS Read",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ensure \"Execute Once\" is toggled ON for this node\nconst articles = $input.all();\nlet formattedFeed = \"Here are the latest technology and macro finance stories to analyze:\\n\\n\";\n\n// State trackers to enforce strict 5-item engineering quotas per source\nlet hnCount = 0;\nlet tcCount = 0;\nlet yahooCount = 0;\nlet displayCount = 1;\n\nfor (const item of articles) {\n    const data = item.json;\n    if (!data || !data.title) continue;\n\n    let source = \"Unknown\";\n    let link = data.link || data.guid || \"\";\n\n    // Identify source origin dynamically by inspecting the destination URL\n    if (link.includes(\"ycombinator.com\") || (data.description && data.description.includes(\"ycombinator.com\"))) {\n        source = \"Hacker News\";\n        if (hnCount >= 5) continue; // Drop item if we already have 5 HN articles\n        hnCount++;\n    } else if (link.includes(\"techcrunch.com\")) {\n        source = \"TechCrunch\";\n        if (tcCount >= 5) continue; // Drop item if we already have 5 TechCrunch articles\n        tcCount++;\n    } else if (link.includes(\"yahoo.com\")) {\n        source = \"Yahoo Finance\";\n        if (yahooCount >= 5) continue; // Drop item if we already have 5 Yahoo articles\n        yahooCount++;\n    }\n\n    // Clean and normalize the headline string to prevent XML token bloating\n    let cleanTitle = data.title.trim()\n        .replace(/&amp;/g, '&')\n        .replace(/&quot;/g, '\"')\n        .replace(/&#x27;/g, \"'\")\n        .replace(/&lt;/g, '<')\n        .replace(/&gt;/g, '>');\n\n    // Build the consolidated text payload for the LLM\n    formattedFeed += `${displayCount}. TITLE: ${cleanTitle}\\n`;\n    formattedFeed += `   SOURCE: ${source}\\n`;\n    formattedFeed += `   URL: ${link.trim()}\\n\\n`;\n    \n    displayCount++;\n}\n\nreturn [{ json: { cleanFeedText: formattedFeed } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -368,
+        336
+      ],
+      "id": "747a8c90-f0dd-492c-b9a8-f259110a2309",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Here is the clean batch of recent technology articles to process:\n{{ $json.cleanFeedText }}\n",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are an elite AI technical intelligence agent. Your job is to process the incoming tech and market feeds and synthesize them into a beautiful, scannable intelligence dashboard for a Discord interface.  Strict Output Layout Rules: 1. Group the stories under three clean taxonomy categories depending on content match:     ### 🚀 ARTIFICIAL INTELLIGENCE    ### 🛡️ CYBERSECURITY    ### 📊 GLOBAL MACRO & COMMODITIES 2. Separate the master sections with this explicit line string: ─────────────────────────────────────── 3. Format every single news item entry using this exact high-density blueprint:  ### 🔹 [Insert Clear, Bold Headline Here] `[Source: TechCrunch OR Hacker News OR Yahoo Finance]` -# 🌐 [Insert Destination URL Here] > **Technical Takeaway:** Insert a precise, exactly 2-sentence architectural or economic analysis explaining why this specific development matters.  Tone Directive: Highly concise, technical, and professional. Do not write introductory or concluding filler commentary. Begin immediately with the category headers."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        512,
+        640
+      ],
+      "id": "d1d616ab-f53d-43f2-b741-3adf880c0559",
+      "name": "Basic LLM Chain",
+      "retryOnFail": false,
+      "waitBetweenTries": 5000,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        64,
+        864
+      ],
+      "id": "0f80a6e6-517d-4a2f-b5fd-87eb6f8eee26",
+      "name": "Google Gemini Chat Model"
+    },
+    {
+      "parameters": {
+        "authentication": "webhook",
+        "content": "={{ $json.chunkText }}\n\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        656
+      ],
+      "id": "1cd0c095-b262-4ee3-a12c-adbd0db0b9f8",
+      "name": "Discord",
+      "webhookId": "9458cb36-c87f-4447-9aaf-b07474f1244d"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ensure \"Execute Once\" is turned OFF on this node so it runs per array entry\nconst chunks = [];\nconst limit = 1800; // Rigid safety ceiling under Discord's 2000 character wall\n\n// 1. Safe extraction syntax matching standard LLM Chain output\nconst fullText = $json.text || \"\";\n\nif (fullText.length <= limit) {\n    if (fullText.trim()) {\n        chunks.push({ json: { chunkText: fullText.trim() } });\n    }\n} else {\n    // Split by newlines to keep paragraph formatting intact\n    const paragraphs = fullText.split('\\n');\n    let currentChunk = \"\";\n\n    for (const para of paragraphs) {\n        // Handle edge case: what if a single paragraph is monstrously long?\n        if (para.length > limit) {\n            // If we have text stored up, flush it out first\n            if (currentChunk.trim()) {\n                chunks.push({ json: { chunkText: currentChunk.trim() } });\n                currentChunk = \"\";\n            }\n            // Hard-slice the monstrous paragraph into valid sub-chunks\n            let subPara = para;\n            while (subPara.length > limit) {\n                chunks.push({ json: { chunkText: subPara.substring(0, limit).trim() } });\n                subPara = subPara.substring(limit);\n            }\n            currentChunk = subPara + \"\\n\";\n            continue;\n        }\n\n        // Standard boundary evaluation\n        if ((currentChunk + para).length > limit) {\n            if (currentChunk.trim()) {\n                chunks.push({ json: { chunkText: currentChunk.trim() } });\n            }\n            currentChunk = para + \"\\n\";\n        } else {\n            currentChunk += para + \"\\n\";\n        }\n    }\n\n    // Flush any remaining characters left over in the buffer\n    if (currentChunk.trim()) {\n        chunks.push({ json: { chunkText: currentChunk.trim() } });\n    }\n}\n\nreturn chunks;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        368
+      ],
+      "id": "e5a6e35a-45ff-45d2-9519-2dae12d8e7cc",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "url": "https://techcrunch.com/feed/",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        16,
+        272
+      ],
+      "id": "4f452497-538d-42b4-bad9-a1e0884ae9c2",
+      "name": "RSS TC"
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        720,
+        -128
+      ],
+      "id": "84451ad8-c4bc-48b1-b020-c8d103b337d9",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "url": "https://finance.yahoo.com/news/category-commodities/rss",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        544,
+        -480
+      ],
+      "id": "5c13cf1e-4e2f-422b-a3af-40e44b6214c1",
+      "name": "RSS YFN",
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "RSS YFN",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS Read": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS TC": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "RSS Read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS YFN": {
+      "main": [
+        [
+          {
+            "node": "RSS TC",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "timezone": "Asia/Kolkata",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "52eba172-a1c1-4344-bf06-b4d6bc9fbeec",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "bc932f536980d92fdc4ca0e078c1348327583a848864d9915c68e365ada6aad0"
+  },
+  "nodeGroups": [],
+  "id": "FI3uAkhmla0Z3Iyx",
+  "tags": []
+}
