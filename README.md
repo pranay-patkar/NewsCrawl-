@@ -32,4 +32,41 @@ This project removes the manual overhead of monitoring global tech shifts and ma
 * **Notification Terminal:** Discord Webhooks API Layer
 
 ### System Data Pipeline Flow
+[ Ingestion Grid: RSS ] ──► [ Gateway Merge Node ]
+│
+▼
+[ JS Data Sanitation ] (Clamps to Top 5 / Source)
+│
+▼
+[ Gemini Inference ] (Applies Taxonomy & Prompts)
+│
+▼
+[ Discord Notification ] (Delivers Scannable UI)
 
+## 💻 Code Architecture Highlights
+
+### Array Isolation & Sanitation Layer
+The system drops external frame libraries, utilizing a raw iterative loop to clean string tables, dynamically check origins by inspecting destination strings, and enforce explicit payload quotas:
+
+```javascript
+// Data filtering logic from the primary data cleaning step
+let hnCount = 0, tcCount = 0, yahooCount = 0, displayCount = 1;
+
+for (const item of articles) {
+    let link = item.json.link || "";
+    
+    // Enforce high-signal volume restrictions per domain
+    if (link.includes("ycombinator.com") && hnCount++ >= 5) continue;
+    if (link.includes("techcrunch.com") && tcCount++ >= 5) continue;
+    if (link.includes("yahoo.com")      && yahooCount++ >= 5) continue;
+
+    // String normalization and entity scrubbing
+    let cleanTitle = item.json.title.trim()
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&#x27;/g, "'");
+    
+    // Builds consolidated context block for the downstream LLM...
+}
+###Prompt Engineering Layer
+The backend utilizes a strict, zero-filler System Prompt that forces the LLM to output consistent metadata blocks without conversational padding:
