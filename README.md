@@ -140,4 +140,5 @@ To push the compiled, terminal-style intelligence summaries directly into your D
    {
      "content": "{{ $json.text }}"
    }
-   
+```
+   ![Alt text](.Workflow.jpg)
